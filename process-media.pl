@@ -16,139 +16,146 @@ if ($argc == 0)
 #print $argc." arguments passed: \n";
 my $root = '/media/data/shares/torrents';
 my $arg;
-my $quiet = false;
-my $file;
-my $dir;
+my %args = ('quiet' => false, 'noop' => false, 'recurse' => false);
 my %output = ('movie' => '/---Movies---', 'tv' => '/---TV---', 'audio' => '/---Music---');
 my $subs_dir = 'subs';
-my @files;
-my $success = false;
-my $noop = false;
 my @video_extns = ('.mp4','.avi','.mkv');
 my @subs_extns = ('.srt');
 my @audio_extns = ('.mp3','.flac');
 my @crap_extns = ('.txt','.nfo','.jpg');
-my $avg_size;
-my $media_type;
-my $recurse = false;
 #my @actions;
 my $sep = '/';
 while ($arg = shift)
 {
-  #print $arg."\n";
   switch($arg)
   {
-    case '-d' {$dir = shift;}
+    case '-i' {$args{input} = shift;}
     case '-h' {echoUsage();}
-    case '-f' {$file = shift;}
-    #case '-o' {$output = shift;}
-    case '-q' {$quiet = true;}
-    case '-r' {$recurse = true;}
-    case '-t' {$media_type = shift}
-    case '--noop' {$noop = true;}
+    case '-o' {$root = shift;}
+    case '-q' {$args{quiet} = true;}
+    case '-r' {$args{recurse} = true;}
+    case '-t' {$args{media_type} = shift}
+    case '--noop' {$args{noop} = true;}
     else {print 'Argument '.$arg.' not supported.'."\n";echoUsage();}
   }
 }
-print 'Media Sorter / Renaming Script.'."\n";
 print 'Root output directory: '.$root."\n";
 
-if ( defined($media_type) )
+if ( defined($args{input}) && -d $args{input} )
 {
-  if ( $media_type !~ m/(movie|tv|audio)/ )
+  unless ( defined($args{media_type}) )
   {
-    quit('Invalid media type.');
+    $args{media_type} = getMediaType($args{input});
+  }
+  validateMediaType($args{media_type});
+  processDir($args{input});
+}
+elsif ( defined($args{input}) && -f $args{input} )
+{
+  if ( defined($args{media_type}) )
+  {
+    validateMediaType($args{media_type});
+    processFile($args{input});
+  }
+  else
+  {
+    quit('You must specify a media type with -t when using single files.');
   }
 }
 else
 {
-  $media_type = getMediaType($dir);
+  quit('No valid input specified');
 }
 
-if ( defined($file) && defined($dir) )
+# Process file handle
+sub processDir
 {
-  quit('Cannot parse file and directory simultaneously. Please specify only one.');
-}
-elsif ( defined($dir) && -d $dir )
-{
-  print 'Media type: '.$media_type."\n";
-  if ( defined($avg_size) )
-  {
-    print 'Average file size: '.sprintf("%0.1f",$avg_size)."MB\n";
-  }
-  $success = opendir (DIR, $dir) or die "$!";
-  @files = readdir DIR;
+  my $media_type = $args{media_type};
+  my $dir = $_[0];
+  opendir (DIR, $dir) or quit("$!");
+  my @files = readdir DIR;
   foreach my $file (@files)
   {
-    my ($name,$path,$suffix) = fileparse($file, qr/\.[^.]*/);
-    if (($suffix ~~ @video_extns || $suffix ~~ @subs_extns) && ($media_type eq 'movie' || $media_type eq 'tv' ))
+    processFile($dir.$sep.$file);
+  }
+  # Delete empty dirs
+  if ( scalar(grep { $_ ne "." && $_ ne ".." } readdir DIR) == 0 )
+  {
+    unless ($args{noop})
     {
-      my $file_clean;
-      if ($media_type eq 'movie')
-      {
-        $file_clean = cleanMovieFileName($name).$suffix;
-      }
-      elsif ($media_type eq 'tv')
-      {
-        $file_clean = cleanTvFileName($name).$suffix;
-      }
-      if ($suffix ~~ @subs_extns)
-      {
-        $file_clean = $subs_dir.$sep.$file_clean;
-      }
-      my ($new_name,$new_path,$new_suffix) = fileparse($root.$output{$media_type}.$sep.$file_clean, qr/\.[^.]*/);
-      if (!$noop)
-      {
-        unless ( -d $new_path )
-        {
-          make_path($new_path);
-        }
-        move( $dir.'/'.$name.$suffix, $new_path.$new_name.$new_suffix) or die 'Move failed: ' . $!;
-      }
-      my ($rel_path) = ($new_path =~ m/$root(.*)/);
-      print 'Processed file: \''.$file.'\' => \''.$rel_path.$new_name.$new_suffix."'\n";
-      # my %hash = {'old' => }
-      # push (@actions, "$dir);
+      rmdir $dir or quit("$!");
     }
-    elsif ($suffix ~~ @audio_extns && $media_type == 'audio')
+    unless ($args{quiet})
     {
-      # Process audio somehow.
-    }
-    elsif ($suffix ~~ @crap_extns)
-    {
-      my $bytes = stat($dir.$sep.$file)->size;
-      my $mbytes = $bytes / 1048576;
-      if ( $mbytes < 1)
-      {
-        unless ($noop)
-        {
-          unlink $dir.$sep.$file;
-        }
-        print 'Deleted file: \''.$file. "'\n";
-      }
-    }
-    elsif ( $recurse && -d $file )
-    {
-      # Call dir process
+      print "Removed directory: '$dir'\n";
     }
   }
-  #Delete empty dirs
-}
-elsif ( defined($file) && -e $file )
-{
-  my ($name,$path,$suffix) = fileparse($file);
-  $files[0] = $name;
-  $dir = $path;
-}
-else
-{
-  quit('No directory or file specified');
 }
 
-if ($success)
+# Process file
+sub processFile
 {
-  closedir DIR;
+  my $media_type = $args{media_type};
+  my ($name,$path,$suffix) = fileparse($_[0], qr/\.[^.]*/);
+  my $old_file = $path.$name.$suffix;
+  if (($suffix ~~ @video_extns || $suffix ~~ @subs_extns) && ($media_type eq 'movie' || $media_type eq 'tv' ))
+  {
+    my $file_clean;
+    if ($media_type eq 'movie')
+    {
+      $file_clean = cleanMovieFileName($name).$suffix;
+    }
+    elsif ($media_type eq 'tv')
+    {
+      $file_clean = cleanTvFileName($name).$suffix;
+    }
+    if ($suffix ~~ @subs_extns)
+    {
+      $file_clean = $subs_dir.$sep.$file_clean;
+    }
+    my ($new_name,$new_path,$new_suffix) = fileparse($root.$output{$media_type}.$sep.$file_clean, qr/\.[^.]*/);
+    unless ($args{noop})
+    {
+      unless ( -d $new_path )
+      {
+        make_path($new_path);
+      }
+      # Something should perhaps check to see it already exists?
+      move( $old_file, $new_path.$new_name.$new_suffix) or quit("Move failed: $!: $path");
+    }
+    my ($rel_path) = ($new_path =~ m/$root(.*)/);
+    unless ($args{quiet})
+    {
+      print "Processed file: '$name$suffix' => '$rel_path$new_name$new_suffix'\n";
+    }
+    # my %hash = {'old' => }
+    # push (@actions, "$dir);
+  }
+  elsif ($suffix ~~ @audio_extns && $media_type == 'audio')
+  {
+    # Process audio somehow.
+  }
+  elsif ($suffix ~~ @crap_extns)
+  {
+    my $bytes = stat($old_file)->size;
+    my $mbytes = $bytes / 1048576;
+    if ( $mbytes < 1)
+    {
+      unless ($args{noop})
+      {
+        unlink $old_file;
+      }
+      unless ($args{quiet})
+      {
+        print 'Deleted file: \''.$old_file. "'\n";
+      }
+    }
+  }
+  elsif ( $args{recurse} && -d $old_file )
+  {
+    processDir($old_file); 
+  }
 }
-exit;
 
 # Clean tv file name
 sub cleanTvFileName
@@ -172,12 +179,16 @@ sub cleanTvFileName
   # Determine show / season
   my ($show) = ($fn =~ m/(.*?) - (?:.*)/);
   my ($season) = ($fn =~ m/(?:.*) - S(\d\d)E\d\d(?:.*)/);
-  if ( defined ($season))
+  if ( defined ($season) )
   {
-    $season = 'Season '.$season;
+    $fn = 'Season '.$season.$sep.$fn;
+  }
+  if ( defined ($show) )
+  {
+    $fn = $show.$sep.$fn;
   }
 
-  return $show.$sep.$season.$sep.$fn;
+  return $fn;
 }
 
 # Clean movie file name
@@ -206,6 +217,15 @@ sub cleanFileName
   $fn =~ s/\b([a-zA-Z])([a-zA-Z]*)/\U$1\L$2/g;
 
   return $fn;
+}
+
+# Check media type is valid
+sub validateMediaType
+{
+  if ( $_[0] !~ m/(movie|tv|audio)/ )
+  {
+    quit('Invalid media type.');
+  }
 }
 
 # y/n user confirmation fn
@@ -238,6 +258,8 @@ sub getMediaType
   my $count = 0;
   my $total_size = 0;
   my $type;
+  my $avg_size;
+  my @files;
   opendir (MDIR, $dir_path) or die "$!";
   @files = readdir MDIR;
   foreach my $file (@files)
@@ -272,6 +294,11 @@ sub getMediaType
   {
     $type = 'other';
   }
+  unless ( $args{quiet} )
+  {
+    print 'Media type: '.$type."\n";
+    print 'Average file size: '.sprintf("%0.1f",$avg_size)."MB\n";
+  }
   return $type;
 }
 
@@ -280,10 +307,9 @@ sub echoUsage
 {
   my $usage = <<EOU;
   Usage:
-    -d: Specify directory to scan and process
+    -i: Specify input directory / file to process
     -h: Show this usage message
-    -f: Specify input file to process
-    -o: Path to put finished files
+    -o: Root media library path to write finished files
     -r: Enable recursive directory tranversing
     -t: Specify directory type. Overides detection
     -q: Quiet; no output
@@ -296,7 +322,7 @@ EOU
 # Function to deal with quiting nicely based upon environment
 sub quit
 {
-  if (!$quiet && $_[0])
+  if (!$args{quiet} && $_[0])
   {
     die $_[0]."\n";
   }
