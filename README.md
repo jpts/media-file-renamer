@@ -1,4 +1,4 @@
-media-file-processor
+media-file-renamer
 ====================
 
-Process Ill formatted media files intelligently.
+Renames and moves media files intelligently.
