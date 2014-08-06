@@ -104,20 +104,21 @@ sub processFile
   if (($suffix ~~ @video_extns || $suffix ~~ @subs_extns) && ($media_type eq 'movie' || $media_type eq 'tv' ))
   {
     my $file_clean;
+    my $fn;
     if ($media_type eq 'movie')
     {
       # $file_clean = cleanMovieFileName($name).$suffix;
-      my $fn = getMovieName($name);
-      $file_clean = cleanFileName($fn);
+      $fn = getMovieName($name);
+      $file_clean = cleanFileName($fn).$suffix;
 
     }
     elsif ($media_type eq 'tv')
     {
       # $file_clean = cleanTvFileName($name).$suffix;
       my $tv_name = getTVName($name);
+      $fn = cleanFileName($tv_name);
       my ($tv_sid, $tv_eid) = getTVID($name);
-      $fn = "$tv_name - Season $tv_sid".$sep.$tv_name." - S$tv_sidE$tv_eid";
-      $file_clean = cleanFileName($fn);
+      $file_clean = $fn.$sep."Season $tv_sid".$sep.$fn." - S".$tv_sid."E".$tv_eid.$suffix;
     }
     # deal with sub file
     # TODO deal with multiple sub files
@@ -249,6 +250,8 @@ sub cleanFileName
   $fn =~ s/[\s]+/ /g;
   # Convert case to Title Style
   $fn =~ s/\b([a-zA-Z])([a-zA-Z]*)/\U$1\L$2/g;
+  # Strip lead/trailing whitespace
+  $fn =~ s/^[ \s]+|[ \s]+$//g;
 
   return $fn;
 }
