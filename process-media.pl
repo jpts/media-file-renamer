@@ -14,14 +14,14 @@ if ($argc == 0)
   echoUsage();
 }
 #print $argc." arguments passed: \n";
-my $root = '/media/data/shares/torrents';
+my $root = '/media';
 my $arg;
 my %args = ('quiet' => false, 'noop' => false, 'recurse' => false);
-my %output = ('movie' => '/---Movies---', 'tv' => '/---TV---', 'audio' => '/---Music---');
+my %output = ('movie' => '/data2/movies', 'tv' => '/data1/shares/torrents/TV-Series', 'audio' => '/data1/shares/torrents/Music');
 my $subs_dir = 'subs';
 my @video_extns = ('.mp4','.avi','.mkv');
 my @subs_extns = ('.srt');
-my @audio_extns = ('.mp3','.flac');
+my @audio_extns = ('.mp3','.flac', '.wav');
 my @crap_extns = ('.txt','.nfo','.jpg');
 #my @actions;
 my $sep = '/';
@@ -41,6 +41,7 @@ while ($arg = shift)
 }
 print 'Root output directory: '.$root."\n";
 
+# check for directory input
 if ( defined($args{input}) && -d $args{input} )
 {
   unless ( defined($args{media_type}) )
@@ -50,6 +51,7 @@ if ( defined($args{input}) && -d $args{input} )
   validateMediaType($args{media_type});
   processDir($args{input});
 }
+# check for file input
 elsif ( defined($args{input}) && -f $args{input} )
 {
   if ( defined($args{media_type}) )
@@ -98,24 +100,37 @@ sub processFile
   my $media_type = $args{media_type};
   my ($name,$path,$suffix) = fileparse($_[0], qr/\.[^.]*/);
   my $old_file = $path.$name.$suffix;
+  # look for video files
   if (($suffix ~~ @video_extns || $suffix ~~ @subs_extns) && ($media_type eq 'movie' || $media_type eq 'tv' ))
   {
     my $file_clean;
     if ($media_type eq 'movie')
     {
-      $file_clean = cleanMovieFileName($name).$suffix;
+      # $file_clean = cleanMovieFileName($name).$suffix;
+      my $fn = getMovieName($name);
+      $file_clean = cleanFileName($fn);
+
     }
     elsif ($media_type eq 'tv')
     {
-      $file_clean = cleanTvFileName($name).$suffix;
+      # $file_clean = cleanTvFileName($name).$suffix;
+      my $tv_name = getTVName($name);
+      my ($tv_sid, $tv_eid) = getTVID($name);
+      $fn = "$tv_name - Season $tv_sid".$sep.$tv_name." - S$tv_sidE$tv_eid";
+      $file_clean = cleanFileName($fn);
     }
+    # deal with sub file
+    # TODO deal with multiple sub files
     if ($suffix ~~ @subs_extns)
     {
       $file_clean = $subs_dir.$sep.$file_clean;
     }
+    # piece filename back into correct pieces
     my ($new_name,$new_path,$new_suffix) = fileparse($root.$output{$media_type}.$sep.$file_clean, qr/\.[^.]*/);
+    # make sure we're not it no-operate mode
     unless ($args{noop})
     {
+      # make directory if it doesnt exist
       unless ( -d $new_path )
       {
         make_path($new_path);
@@ -131,10 +146,12 @@ sub processFile
     # my %hash = {'old' => }
     # push (@actions, "$dir);
   }
+  # Process audio somehow.
   elsif ($suffix ~~ @audio_extns && $media_type == 'audio')
   {
-    # Process audio somehow.
+    quit('Audio processing currently unhandled.');
   }
+  # Discard other files
   elsif ($suffix ~~ @crap_extns)
   {
     my $bytes = stat($old_file)->size;
@@ -151,56 +168,73 @@ sub processFile
       }
     }
   }
+  # Process a directory
   elsif ( $args{recurse} && -d $old_file )
   {
     processDir($old_file); 
   }
 }
 
-# Clean tv file name
-sub cleanTvFileName
+# Get movie name - split on year
+sub getMovieName
 {
   my $fn = $_[0];
-  $fn =~ s/[._-]/ /g;
-  # Format seasons / episodes correctly
-  $fn =~ s/[\s]*(Episode|e(\d\d[^\d]))[\s]*/E$2/i;
-  $fn =~ s/(Season|Series)[\s]*/S/i;
-  $fn =~ s/([\d]{1,2})x([\d]{1,2})/S$1E$2/i;
-  $fn =~ s/([SE])[0]{0,1}(\d)([^\d])/${1}0$2$3/ig;
-  # Remove dates
-  $fn =~ s/([\d]{4})//g;
-  # Remove things in brackets
-  $fn =~ s/[\s]*[{\[(].*[\])}]//g;
-  # Genric clean 
-  $fn = cleanFileName($fn);
-  # Add hyphens back in
-  $fn =~ s/(\sS\d\dE\d\d)/ -$1/i;
-  $fn =~ s/(\sS\d\dE\d\d\s)/$1- /i;
-  # Determine show / season
-  my ($show) = ($fn =~ m/(.*?) - (?:.*)/);
-  my ($season) = ($fn =~ m/(?:.*) - S(\d\d)E\d\d(?:.*)/);
-  if ( defined ($season) )
+  if ( $fn =~ /(.*)[\[(](\d){4}[\])]/ )
   {
-    $fn = 'Season '.$season.$sep.$fn;
+    return "$1[$2]";
   }
-  if ( defined ($show) )
-  {
-    $fn = $show.$sep.$fn;
-  }
-
-  return $fn;
 }
 
-# Clean movie file name
-sub cleanMovieFileName
+# Get TV name - split on Series / Episode etc
+sub getTVName
 {
   my $fn = $_[0];
-  $fn = cleanFileName($fn);
-  $fn =~ s/[\s]*[^\[][(]*([\d]{4})[)]*[\s]*/ \[$1\]/;
-  $fn =~ s/\(.*\)//g;
-  $fn =~ s/(.*)(\[[\d]{4}\])(?:.*)$/$1$2/;
+  if ( $fn =~ /(.*)s\d\de\d\d/i )
+  {
+     return $1;
+  }
+  elsif ( $fn =~ /(.*)\dx\d\d/ )
+  {
+    return $1;
+  }
+  elsif ( $fn =~ /(.*)Season/ )
+  {
+    return $1;
+  }
+  else
+  {
+    return -1;
+  }
+}
 
-  return $fn;
+# Get TV ID
+sub getTVID
+{
+  my $fn = $_[0];
+  if ( $fn =~ /s((?:\d){0,1}\d)e(\d\d)/i )
+  {
+     return ($1,$2);
+  }
+  elsif ( $fn =~ /(\d)x(\d\d)/ )
+  {
+    return ($1,$2);
+  }
+  elsif ( $fn =~ /Season ((?:\d){0,1}\d)/i )
+  {
+    my $SID = $1;
+    if ( $fn =~ /Episode ((?:\d){0,1}\d)/i )
+    {
+      return ($SID,$1);
+    }
+    else
+    {
+      return -1;
+    }
+  }
+  else
+  {
+    return -1;
+  }
 }
 
 # Common filename cleaning regex
@@ -210,7 +244,7 @@ sub cleanFileName
   # Remove unwanted chars
   $fn =~ s/[._-]/ /g;
   # Remove unwanted words
-  $fn =~ s/[\s]*(xvid|divx|brrip|dvd|\wdtv|mkv|ac3|default).*//ig;
+  #$fn =~ s/[\s]*(xvid|divx|brrip|dvd|\wdtv|mkv|ac3|default).*//ig;
   # Remove unwanted space
   $fn =~ s/[\s]+/ /g;
   # Convert case to Title Style
@@ -250,7 +284,7 @@ sub getConfirmation
   die 'Invalid input.';
 }
 
-# media categorisiing fn
+# media categorising fn
 sub getMediaType
 {
   my $dir_path = $_[0];
