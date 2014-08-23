@@ -180,9 +180,13 @@ sub processFile
 sub getMovieName
 {
   my $fn = $_[0];
-  if ( $fn =~ /(.*)[\[(](\d){4}[\])]/ )
+  if ( $fn =~ /(.*)[\[(.]([\d]{4})[\]).]/ )
   {
-    return "$1[$2]";
+    return "$1 \[$2\]";
+  }
+  else
+  {
+    quit('Failed to get movie name');
   }
 }
 
