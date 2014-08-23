@@ -19,6 +19,7 @@ my $arg;
 my %args = ('quiet' => false, 'noop' => false, 'recurse' => false);
 my %output = ('movie' => '/data2/movies', 'tv' => '/data1/shares/torrents/TV-Series', 'audio' => '/data1/shares/torrents/Music');
 my $subs_dir = 'subs';
+my @subs_langs = ('eng', 'swe', 'ger');
 my @video_extns = ('.mp4','.avi','.mkv');
 my @subs_extns = ('.srt');
 my @audio_extns = ('.mp3','.flac', '.wav');
@@ -105,11 +106,20 @@ sub processFile
   {
     my $file_clean;
     my $fn;
+    my $sub_lang = "";
+    # Determine a language for a sub file if it exists for adding to filename.
+    if ( $suffix ~~ @subs_extns && $name =~ /[._]([\w]{3})$/ )
+    {
+      if ($1 ~~ @subs_langs)
+      {
+        $sub_lang = "_$1";
+      }
+    }
     if ($media_type eq 'movie')
     {
       # $file_clean = cleanMovieFileName($name).$suffix;
       $fn = getMovieName($name);
-      $file_clean = cleanFileName($fn).$suffix;
+      $file_clean = cleanFileName($fn).$sub_lang.$suffix;
 
     }
     elsif ($media_type eq 'tv')
@@ -118,17 +128,16 @@ sub processFile
       my $tv_name = getTVName($name);
       $fn = cleanFileName($tv_name);
       my ($tv_sid, $tv_eid) = getTVID($name);
-      $file_clean = $fn.$sep."Season $tv_sid".$sep.$fn." - S".$tv_sid."E".$tv_eid.$suffix;
+      $file_clean = $fn.$sep."Season $tv_sid".$sep.$fn." - S".$tv_sid."E".$tv_eid.$sub_lang.$suffix;
     }
-    # deal with sub file
-    # TODO deal with multiple sub files
+    # Prepend subs dir to subs filepath
     if ($suffix ~~ @subs_extns)
     {
       $file_clean = $subs_dir.$sep.$file_clean;
     }
     # piece filename back into correct pieces
     my ($new_name,$new_path,$new_suffix) = fileparse($root.$output{$media_type}.$sep.$file_clean, qr/\.[^.]*/);
-    # make sure we're not it no-operate mode
+    # make sure we're not in no-operate mode
     unless ($args{noop})
     {
       # make directory if it doesnt exist
